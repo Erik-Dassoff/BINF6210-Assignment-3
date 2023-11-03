@@ -1,2 +1,2 @@
-# Halloween
-Test repository. 
+# Assignment 3 BINF6210
+
