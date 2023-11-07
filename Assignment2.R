@@ -8,6 +8,10 @@ library(randomForest)  #Erik - added randomForest library
 #Primary author: Arvind Srinivas
 #Contributor information: Erik Dassoff has updated and contributed to this script
 
+###----PART 0: ADJUSTABLE PARAMETERS
+#added a few adjustable parameters, but more could be added
+ntree <- 150
+
 ####----PART 1: DATA EXPLORATION, FILTERING, AND QUALITY CHECKING---- 
 
 #Searching for hits. This function takes in the order_name and returns the search results for carnivora, artiodactyla, and squamata. The terms are already defined in search_terms, where we only want the CytB gene and for it to be 800 to 1200 base pairs in length (CytB gene is on average 1140bp). Also using web_history to gain a large dataset, meaning that it might take time to process. Search_results performs the search based on search_term in the nuccore database.
@@ -177,8 +181,8 @@ set.seed(759385)
 #Create a training dataset by filtering out validation samples and sampling the remaining amount of data.
 cytB_dfTraining <- cytB_df %>%
   filter(!cytB_title %in% cytB_dfValidation$cytB_title) %>% #Samples not from Validation data.
-
-#Erik - removed the sampling of remaining data, so that all remaining data not in the validation data set is in the training data set. 
+  group_by(Order) %>%
+  sample_n(ceiling(0.7 * sample)) 
 
 #Checking the distribution of orders in the training dataset.
 table(cytB_dfTraining$Order)
@@ -188,7 +192,7 @@ ncol(cytB_df) #Finding number of columns.
 order_classifier <- randomForest(
   x = cytB_dfTraining[, 9:268], #Takes proportions and 4-mer possibilities.
   y = as.factor(cytB_dfTraining$Order),
-  ntree = 150,
+  ntree = ntree,
   importance = TRUE
 )
 
@@ -201,7 +205,51 @@ custom_colors <- c("black", "purple", "blue", "orange")
 plot(order_classifier, main = "Error Rate Proximity Plot Based on Order Classification for Training Data", col = custom_colors, lty = c(1,2,2,2), lwd = c(1,1.5,1.5,1.5))
 legend("topright", legend = c("Out-of-Bag Samples", "Artiodactyla", "Carnivora", "Squamata"), col = custom_colors, lty = c(1,2,2,2), cex = 0.7)
 
-#Check on validation data. 
-predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
+plot(order_classifier)
+
+#Erik - using the OOB error rate to select the number of trees to be used in the model. First creating separate data frame from order_classifier with new column containing the number of trees associated with the error rate 
+oobError <- as.data.frame(order_classifier$err.rate) %>%
+  cbind(c(1:ntree))
+
+colnames(oobError)[5] <- "treeNo"
+
+#Erik - finding the minimum OOB error rate and using this to select the number of trees for the model. There can be the same (minimum) OOB error for multiple trees so the second piped element filters for the smallest number of trees to create the simplest/most computationally efficient model. Then, the smallest tree number at which there is the lowest OOB error is selected.
+min_treeNo <- oobError %>%
+  filter(OOB == min(OOB)) %>%
+  filter(treeNo == min(treeNo)) %>%
+  select(treeNo)
+
+min_treeNo <- min_treeNo[1,1] %>%
+  print()
+
+#Erik - duplicating previous model, but this time with auto-selected No. of trees from OOB error rate. Also adding proximity values to detect outliers.
+order_classifier2 <- randomForest(
+  x = cytB_dfTraining[, 9:268], #Takes proportions and 4-mer possibilities.
+  y = as.factor(cytB_dfTraining$Order),
+  ntree = min_treeNo,
+  importance = TRUE, 
+  proximity = TRUE
+)
+
+#Erik - determining top 10 sequence features were most important in generating predictions (using auto-selected tree No.)
+topFeatures <- order_classifier2$importance[1:10, ] %>%
+  print()   #Single nucleotide proportions had the most predictive power
+
+#Check on validation data (adjusted for auto-selected tree No.). 
+predictCytBValidation2 <- predict(order_classifier2, cytB_dfValidation[,9:268])
 
 predictCytBValidation #The squamata entries were omitted because it went beyond the max amount of entries to display. 
+
+#Erik - creating a confusion matrix for validation data (using auto-selected tree No.)
+validationConfusionMatrix2 <- table(predictCytBValidation2, cytB_dfValidation$Order) %>%
+  print()
+
+
+output$pred %>% filter_("pred!=obs")
+
+#Erik - comparing to validation data without auto-selected tree No.
+predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
+validationConfusionMatrix <- table(predictCytBValidation, cytB_dfValidation$Order) %>%
+  print()   #the result is the exact same, but could be more computationally efficient with larger data with fewer trees being trained.
+
+
