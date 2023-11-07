@@ -3,6 +3,10 @@ library(Biostrings)
 library(BiocManager)
 library(seqinr)
 library(rentrez)
+library(randomForest)  #Erik - added randomForest library
+
+#Primary author: Arvind Srinivas
+#Contributor information: Erik Dassoff has updated and contributed to this script
 
 ####----PART 1: DATA EXPLORATION, FILTERING, AND QUALITY CHECKING---- 
 
@@ -110,7 +114,7 @@ combined_df1 <- combined_df %>%
 view(combined_df1) 
 
 class(combined_df1) #Checking class.
-dim(combined_df1) #Checking dimenstions. There should be 4 columns but many rows. 
+dim(combined_df1) #Checking dimensions. There should be 4 columns but many rows. 
 table(combined_df1$Order) #Observing counts of order data. Confirming that sequences with N's were removed. 
 summary(nchar(combined_df1$cytB_sequence)) #Getting statistics for number of nucleotides in sequence for the CytB gene for each order. 
 
@@ -130,6 +134,9 @@ ggplot(combined_df1, aes(x = NucleotideCount, fill = Order)) +
 cytB_df <- as.data.frame(combined_df1)
 cytB_df$cytB_sequence <- DNAStringSet(cytB_df$cytB_sequence)
 view(cytB_df)
+
+#Erik - check
+class(cytB_df$cytB_sequence)
 
 #Looking at nucleotide frequencies from the cytB_df
 cytB_df <- cbind(cytB_df, as.data.frame(letterFrequency(cytB_df$cytB_sequence, letters = c("A", "C", "G", "T"))))
@@ -170,8 +177,8 @@ set.seed(759385)
 #Create a training dataset by filtering out validation samples and sampling the remaining amount of data.
 cytB_dfTraining <- cytB_df %>%
   filter(!cytB_title %in% cytB_dfValidation$cytB_title) %>% #Samples not from Validation data.
-  group_by(Order) %>%
-  sample_n(ceiling(0.7 * sample)) 
+
+#Erik - removed the sampling of remaining data, so that all remaining data not in the validation data set is in the training data set. 
 
 #Checking the distribution of orders in the training dataset.
 table(cytB_dfTraining$Order)
