@@ -222,31 +222,59 @@ min_treeNo <- oobError %>%
 min_treeNo <- min_treeNo[1,1] %>%
   print()
 
-#Erik - duplicating previous model, but this time with auto-selected No. of trees from OOB error rate. Also adding proximity values to detect outliers.
+#Erik - duplicating previous model, but this time with auto-selected No. of trees from OOB error rate. 
 order_classifier2 <- randomForest(
   x = cytB_dfTraining[, 9:268], #Takes proportions and 4-mer possibilities.
   y = as.factor(cytB_dfTraining$Order),
   ntree = min_treeNo,
-  importance = TRUE, 
-  proximity = TRUE
+  importance = TRUE
 )
 
 #Erik - determining top 10 sequence features were most important in generating predictions (using auto-selected tree No.)
 topFeatures <- order_classifier2$importance[1:10, ] %>%
   print()   #Single nucleotide proportions had the most predictive power
 
-#Check on validation data (adjusted for auto-selected tree No.). 
-predictCytBValidation2 <- predict(order_classifier2, cytB_dfValidation[,9:268])
+#Check on validation data (adjusted for auto-selected tree No.). Erik - Also converting to a vector for downstream analysis.
+predictCytBValidation2 <- as.vector(predict(order_classifier2, cytB_dfValidation[,9:268]))
 
-predictCytBValidation #The squamata entries were omitted because it went beyond the max amount of entries to display. 
+#Erik - Adding identifying numbers to rows, to carry unique sample identifiers through analysis. This will be used for downstream analysis to identify samples 
+names(predictCytBValidation2) <- c(1:length(predictCytBValidation2))
+
+#check
+names(predictCytBValidation2)
+
+predictCytBValidation2
+
+predictCytBValidation2 #The squamata entries were omitted because it went beyond the max amount of entries to display. 
 
 #Erik - creating a confusion matrix for validation data (using auto-selected tree No.)
 validationConfusionMatrix2 <- table(predictCytBValidation2, cytB_dfValidation$Order) %>%
   print()
 
+#Erik - finding the incorrect predictions and filtering data frame to show what the incorrect predictions are for further interrogation to see if there is a reason why this was incorrectly classified. Also including cytB titles, to maintain unique sample identifiers.
+incorrectPredictions <- as.data.frame(cbind(predictCytBValidation2, cytB_dfValidation$Order, cytB_dfValidation$cytB_title)) %>%
+  filter(predictCytBValidation2 != cytB_dfValidation$Order) 
 
-output$pred %>% filter_("pred!=obs")
+colnames(incorrectPredictions)[c(2,3)] <- c("dfValidationOrder", "Title")
 
+#Erik - check that column names were added correctly
+names(incorrectPredictions)
+incorrectPredictions
+
+#Erik - finding the incorrect prediction. Sub-setting for the number of rows and title column returns the value of the title, which is needed for downstream analysis. Afterwards, sub-setting the original data frame for this(or these) titles to find more information on these sequences. 
+incorrectPredictions_Title <- incorrectPredictions[1:nrow(incorrectPredictions),"Title"]
+incorrectPredictions_Title
+
+incorrectClassInfo <- cytB_dfValidation %>%
+  filter(cytB_title == incorrectPredictions_Title) %>%
+  view() #the sequence count is within an expected range
+
+#Erik - Here, choosing to select the nucleotide sequence, which I'll copy/paste into BLAST online from NCBI to see if it was possibly mis-labelled or a contaminant, making it difficult to classify: https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome. Other quality checks could be performed, like looking for outliers in terms of k-mer proportions.
+
+incorrectClassInfo %>% 
+  select(cytB_sequence) %>%
+  view()  #Erik - compare BLAST hits to incorrectPredictions object to see if any hits match the expected species. In the current example, there is a high probability that the species is Sus scrofa, so the mis-classification is likely from something other than a mislabelling error, contamination, or an incorrect gene (BLAST identified the CYBRD1 gene and sequence lengths are reasonable). Sequence quality is one possibility, since although the BLAST tool identified it, Sus scrofa was not the only possible species. 
+  
 #Erik - comparing to validation data without auto-selected tree No.
 predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
 validationConfusionMatrix <- table(predictCytBValidation, cytB_dfValidation$Order) %>%
