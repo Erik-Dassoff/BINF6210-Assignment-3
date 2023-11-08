@@ -3,13 +3,17 @@ library(Biostrings)
 library(BiocManager)
 library(seqinr)
 library(rentrez)
-library(randomForest)  #Erik - added randomForest library
+library(randomForest)
+#install.packages("pROC") #adding pROC for AUC calculations
+library(pROC) 
+#install.packages("ggRandomForests") #adding for some extra plotting functions
+library(ggRandomForests)
 
 #Primary author: Arvind Srinivas
 #Contributor information: Erik Dassoff has updated and contributed to this script
 
 ###----PART 0: ADJUSTABLE PARAMETERS
-#added a few adjustable parameters, but more could be added
+#Erik - added a few adjustable parameters, but more could be added
 ntree <- 150
 
 ####----PART 1: DATA EXPLORATION, FILTERING, AND QUALITY CHECKING---- 
@@ -280,4 +284,66 @@ predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
 validationConfusionMatrix <- table(predictCytBValidation, cytB_dfValidation$Order) %>%
   print()   #the result is the exact same, but could be more computationally efficient with larger data with fewer trees being trained.
 
+
+#Erik - Creating ROC curve for validation data set, including all 3 orders
+#building ROC curve. First need to re-run random forest to generate outputs as probabilities, which are needed as inputs for roc function. Then, running roc function on the second column, which contains the probabilities for one response factor. roc function is then used to create curve.
+predictCytBValidation.prob <- as.numeric(predict(order_classifier2, newdata = cytB_dfValidation[,9:268], type = "response")) 
+
+#adding row names to be able to see which samples had which class probability, if needed or interesting.
+row.names(predictCytBValidation.prob) <- cytB_dfValidation$cytB_title
+view(predictCytBValidation.prob)
+
+#creating ROC curve, using comparison between probabilities and predicted species. Multi-class calculates ROC considering > two-sample classification problem.
+ROC <- multiclass.roc(response = predictCytBValidation, predictor = predictCytBValidation.prob)
+
+#calculating the area under the curve. 1 is perfect classification. 0.5 is not better than random chance.
+AUC <- auc(ROC) %>%
+  print()
+
+#plotting. https://stackoverflow.com/questions/72179298/how-do-i-make-and-plot-roc-curves-in-r-for-multiclass-classification,   https://stackoverflow.com/questions/34169774/plot-roc-for-multiclass-roc-in-proc-package
+
+ROC$rocs
+curve <- ROC[['rocs']]
+plot.roc(curve[[1]], legacy.axes = T, print.auc = T, print.auc.adj = c(1,-6), col = "black")
+sapply(2:length(curve),function(i) lines.roc(curve[[i]]))
+sapply(2:length(curve), function(i) plot.roc(curve[[i]], add = T, print.auc = T, print.auc.adj = c(1, -7+i), col = i))
+legend("bottomright", legend = c("Artiodactyla - Carnivora", "Artiodactyla - Squamata", "Carnivora - Squamata"), lwd = 3)
+sapply(2:length(curve), function(i) legend(legend = legend, col = i))
+
+
+
+col = c("black", "darkblue", "lightblue"),
+
+plot.roc(ROC$rocs[[1]], predictCytBValidation.prob,
+         print.auc = T,
+         legacy.axes = T,
+         col = "darkblue")
+plot.roc(ROC$rocs[[2]],
+         add=T, col = "lightblue", lty = 2, print.auc = T,
+         print.auc.adj = c(0,3))
+plot.roc(ROC$rocs[[3]],
+         add=T, col = "black", lty = 3,
+         print.auc = T, 
+         legacy.axes = T,
+         print.auc.adj = c(0,5))
+legend('bottomright', 
+       legend = c(''))
+
+ROC$rocs
+ROC_list <- list("SVM Radial Kernel" = ROC_SVM2, "SVM Linear Kernel" = ROC_SVM1, "Random Forest" = ROC_random_forest2)
+
+ggroc(ROC, aes = c("color", "linetype"), legacy.axes = TRUE) +
+  xlab("1-Specificity (False Positive Rate)") + 
+  ylab("Sensitivity (True Positive Rate") +
+  geom_abline(lty = 2, lwd = 0.1) +
+  scale_color_manual(values = c("midnight blue", "light blue3", "yellow3")) +
+  ggtitle("ROC curve for models built on \n 4-mer and single nucleotide proportions") + 
+  theme_classic() +
+  labs(color = "Model Type", linetype = "Model Type")
+
+
+
+#MAIN EDIT 01: Further investigation for samples with incorrect classification
+#MAIN EDIT 02: Creating automated selection for number of trees, based on minimum number of trees alongside minimum out-of-bag error
+#MAIN EDIT 03: Creating ROC curve and calculating ROC as a way to show the model accuracy for the chosen parameters. The ROC curve also helps to show the accuracy both in terms of true positive rate and false positive rate, providing some additional information, which could be useful depending on the question at hand and which type of error is most critical to avoid. It's also useful for just a general measurement of accuracy across different classification thresholds, as it's used here, since only one model is plotted. Found this to be helpful: https://medium.com/analytics-vidhya/how-to-select-performance-metrics-for-classification-models-c847fe6b1ea3
 
