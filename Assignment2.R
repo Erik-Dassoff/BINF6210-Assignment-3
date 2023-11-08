@@ -209,15 +209,17 @@ custom_colors <- c("black", "purple", "blue", "orange")
 plot(order_classifier, main = "Error Rate Proximity Plot Based on Order Classification for Training Data", col = custom_colors, lty = c(1,2,2,2), lwd = c(1,1.5,1.5,1.5))
 legend("topright", legend = c("Out-of-Bag Samples", "Artiodactyla", "Carnivora", "Squamata"), col = custom_colors, lty = c(1,2,2,2), cex = 0.7)
 
-plot(order_classifier)
 
-#Erik - using the OOB error rate to select the number of trees to be used in the model. First creating separate data frame from order_classifier with new column containing the number of trees associated with the error rate 
+
+#MAIN EDIT 01: Creating automated selection for number of trees, based on minimum number of trees alongside minimum out-of-bag error----
+
+#using the OOB error rate to select the number of trees to be used in the model. First creating separate data frame from order_classifier with new column containing the number of trees associated with the error rate 
 oobError <- as.data.frame(order_classifier$err.rate) %>%
   cbind(c(1:ntree))
 
 colnames(oobError)[5] <- "treeNo"
 
-#Erik - finding the minimum OOB error rate and using this to select the number of trees for the model. There can be the same (minimum) OOB error for multiple trees so the second piped element filters for the smallest number of trees to create the simplest/most computationally efficient model. Then, the smallest tree number at which there is the lowest OOB error is selected.
+#finding the minimum OOB error rate and using this to select the number of trees for the model. There can be the same (minimum) OOB error for multiple trees so the second piped element filters for the smallest number of trees to create the simplest/most computationally efficient model. Then, the smallest tree number at which there is the lowest OOB error is selected.
 min_treeNo <- oobError %>%
   filter(OOB == min(OOB)) %>%
   filter(treeNo == min(treeNo)) %>%
@@ -226,7 +228,7 @@ min_treeNo <- oobError %>%
 min_treeNo <- min_treeNo[1,1] %>%
   print()
 
-#Erik - duplicating previous model, but this time with auto-selected No. of trees from OOB error rate. 
+#duplicating previous model, but this time with auto-selected No. of trees from OOB error rate. 
 order_classifier2 <- randomForest(
   x = cytB_dfTraining[, 9:268], #Takes proportions and 4-mer possibilities.
   y = as.factor(cytB_dfTraining$Order),
@@ -234,38 +236,45 @@ order_classifier2 <- randomForest(
   importance = TRUE
 )
 
-#Erik - determining top 10 sequence features were most important in generating predictions (using auto-selected tree No.)
-topFeatures <- order_classifier2$importance[1:10, ] %>%
-  print()   #Single nucleotide proportions had the most predictive power
+#converting prediction to a vector for downstream analysis.
+predictCytBValidation2 <- predict(order_classifier2, cytB_dfValidation[,9:268])
 
-#Check on validation data (adjusted for auto-selected tree No.). Erik - Also converting to a vector for downstream analysis.
-predictCytBValidation2 <- as.vector(predict(order_classifier2, cytB_dfValidation[,9:268]))
-
-#Erik - Adding identifying numbers to rows, to carry unique sample identifiers through analysis. This will be used for downstream analysis to identify samples 
-names(predictCytBValidation2) <- c(1:length(predictCytBValidation2))
+#was previously as.vector()
 
 #check
-names(predictCytBValidation2)
+class(predictCytBValidation2)
 
-predictCytBValidation2
-
-predictCytBValidation2 #The squamata entries were omitted because it went beyond the max amount of entries to display. 
-
-#Erik - creating a confusion matrix for validation data (using auto-selected tree No.)
+#creating a confusion matrix for validation data (using auto-selected tree No.)
 validationConfusionMatrix2 <- table(predictCytBValidation2, cytB_dfValidation$Order) %>%
   print()
 
-#Erik - finding the incorrect predictions and filtering data frame to show what the incorrect predictions are for further interrogation to see if there is a reason why this was incorrectly classified. Also including cytB titles, to maintain unique sample identifiers.
-incorrectPredictions <- as.data.frame(cbind(predictCytBValidation2, cytB_dfValidation$Order, cytB_dfValidation$cytB_title)) %>%
+#comparing to validation data without auto-selected tree No.
+predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
+validationConfusionMatrix <- table(predictCytBValidation, cytB_dfValidation$Order) %>%
+  print()   #the result is the exact same, but could be more computationally efficient with larger data with fewer trees being trained.
+
+
+
+#SIDE EDIT----
+
+#determining top 10 sequence features that were most important in generating predictions (using auto-selected tree No.)
+topFeatures <- order_classifier2$importance[1:10, ] %>%
+  print()   #Single nucleotide proportions had the most predictive power
+
+
+
+#MAIN EDIT 02: Further investigation for samples with incorrect classification----
+#finding the incorrect predictions and filtering data frame to show what the incorrect predictions are for further interrogation to see if there is a reason why this was incorrectly classified. Also including cytB titles, to maintain unique sample identifiers.
+incorrectPredictions <- as.data.frame(cbind(as.vector(predictCytBValidation2), cytB_dfValidation$Order, cytB_dfValidation$cytB_title)) %>%
   filter(predictCytBValidation2 != cytB_dfValidation$Order) 
 
 colnames(incorrectPredictions)[c(2,3)] <- c("dfValidationOrder", "Title")
 
-#Erik - check that column names were added correctly
+#check that column names were added correctly
 names(incorrectPredictions)
 incorrectPredictions
 
-#Erik - finding the incorrect prediction. Sub-setting for the number of rows and title column returns the value of the title, which is needed for downstream analysis. Afterwards, sub-setting the original data frame for this(or these) titles to find more information on these sequences. 
+#finding the incorrect prediction. Sub-setting for the number of rows and title column returns the value of the title, which is needed for downstream analysis. Afterwards, sub-setting the original data frame for this(or these) titles to find more information on these sequences. 
 incorrectPredictions_Title <- incorrectPredictions[1:nrow(incorrectPredictions),"Title"]
 incorrectPredictions_Title
 
@@ -273,77 +282,35 @@ incorrectClassInfo <- cytB_dfValidation %>%
   filter(cytB_title == incorrectPredictions_Title) %>%
   view() #the sequence count is within an expected range
 
-#Erik - Here, choosing to select the nucleotide sequence, which I'll copy/paste into BLAST online from NCBI to see if it was possibly mis-labelled or a contaminant, making it difficult to classify: https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome. Other quality checks could be performed, like looking for outliers in terms of k-mer proportions.
+#choosing to select the nucleotide sequence, which I'll copy/paste into BLAST online from NCBI to see if it was possibly mis-labelled or a contaminant, making it difficult to classify: https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome. Other quality checks could be performed, like looking for outliers in terms of k-mer proportions.
 
 incorrectClassInfo %>% 
   select(cytB_sequence) %>%
-  view()  #Erik - compare BLAST hits to incorrectPredictions object to see if any hits match the expected species. In the current example, there is a high probability that the species is Sus scrofa, so the mis-classification is likely from something other than a mislabelling error, contamination, or an incorrect gene (BLAST identified the CYBRD1 gene and sequence lengths are reasonable). Sequence quality is one possibility, since although the BLAST tool identified it, Sus scrofa was not the only possible species. 
+  view()  #compare BLAST hits to incorrectPredictions object to see if any hits match the expected species. In the current example, there is a high probability that the species is Sus scrofa, so the mis-classification is likely from something other than a mislabelling error, contamination, or an incorrect gene (BLAST identified the CYBRD1 gene and sequence lengths are reasonable). Sequence quality is one possibility, since although the BLAST tool identified it, Sus scrofa was not the only possible species. 
   
-#Erik - comparing to validation data without auto-selected tree No.
-predictCytBValidation <- predict(order_classifier, cytB_dfValidation[,9:268])
-validationConfusionMatrix <- table(predictCytBValidation, cytB_dfValidation$Order) %>%
-  print()   #the result is the exact same, but could be more computationally efficient with larger data with fewer trees being trained.
 
 
-#Erik - Creating ROC curve for validation data set, including all 3 orders
-#building ROC curve. First need to re-run random forest to generate outputs as probabilities, which are needed as inputs for roc function. Then, running roc function on the second column, which contains the probabilities for one response factor. roc function is then used to create curve.
-predictCytBValidation.prob <- as.numeric(predict(order_classifier2, newdata = cytB_dfValidation[,9:268], type = "response")) 
+#MAIN EDIT 03: Creating ROC curve and calculating ROC as a way to show the model accuracy for the chosen parameters. The ROC curve also helps to show the accuracy both in terms of true positive rate and false positive rate, providing some additional information, which could be useful depending on the question at hand and which type of error is most critical to avoid. It's also useful for just a general measurement of accuracy across different classification thresholds. Found this to be helpful: https://medium.com/analytics-vidhya/how-to-select-performance-metrics-for-classification-models-c847fe6b1ea3
 
-#adding row names to be able to see which samples had which class probability, if needed or interesting.
-row.names(predictCytBValidation.prob) <- cytB_dfValidation$cytB_title
-view(predictCytBValidation.prob)
+#building ROC curve. First converting prediction to numeric, which is needed for the multiclass ROC curve. 
+predictCytBValidation.num <- as.numeric(predictCytBValidation2)
 
 #creating ROC curve, using comparison between probabilities and predicted species. Multi-class calculates ROC considering > two-sample classification problem.
-ROC <- multiclass.roc(response = predictCytBValidation, predictor = predictCytBValidation.prob)
+ROC <- multiclass.roc(response = predictCytBValidation, predictor = predictCytBValidation.num)
 
 #calculating the area under the curve. 1 is perfect classification. 0.5 is not better than random chance.
 AUC <- auc(ROC) %>%
   print()
 
-#plotting. https://stackoverflow.com/questions/72179298/how-do-i-make-and-plot-roc-curves-in-r-for-multiclass-classification,   https://stackoverflow.com/questions/34169774/plot-roc-for-multiclass-roc-in-proc-package
+#plotting ROC curves for each comparison using functions. After plotting the first curve, a new line is plotted for subsequent comparisons and the AUC value is added for each new line. The AUC value positions are adjusted to not overlap, and the value added to the color (in this case 2), changes the colors by altering the selected color number. These colors are then added to the legend using the same function. 
+
+#Help resources used:  https://stackoverflow.com/questions/72179298/how-do-i-make-and-plot-roc-curves-in-r-for-multiclass-classification,   https://stackoverflow.com/questions/34169774/plot-roc-for-multiclass-roc-in-proc-package
 
 ROC$rocs
 curve <- ROC[['rocs']]
-plot.roc(curve[[1]], legacy.axes = T, print.auc = T, print.auc.adj = c(1,-6), col = "black")
+par(bg = "black", fg = "white", col.axis = "white", col.lab = "white")
+plot.roc(curve[[1]], legacy.axes = T, print.auc = T, print.auc.adj = c(1,-6), col = "white", xlab = "1 - Specificity (False Positive Rate)", ylab = "Sensitivity (True Positive Rate)")
 sapply(2:length(curve),function(i) lines.roc(curve[[i]]))
-sapply(2:length(curve), function(i) plot.roc(curve[[i]], add = T, print.auc = T, print.auc.adj = c(1, -7+i), col = i))
-legend("bottomright", legend = c("Artiodactyla - Carnivora", "Artiodactyla - Squamata", "Carnivora - Squamata"), lwd = 3)
-sapply(2:length(curve), function(i) legend(legend = legend, col = i))
-
-
-
-col = c("black", "darkblue", "lightblue"),
-
-plot.roc(ROC$rocs[[1]], predictCytBValidation.prob,
-         print.auc = T,
-         legacy.axes = T,
-         col = "darkblue")
-plot.roc(ROC$rocs[[2]],
-         add=T, col = "lightblue", lty = 2, print.auc = T,
-         print.auc.adj = c(0,3))
-plot.roc(ROC$rocs[[3]],
-         add=T, col = "black", lty = 3,
-         print.auc = T, 
-         legacy.axes = T,
-         print.auc.adj = c(0,5))
-legend('bottomright', 
-       legend = c(''))
-
-ROC$rocs
-ROC_list <- list("SVM Radial Kernel" = ROC_SVM2, "SVM Linear Kernel" = ROC_SVM1, "Random Forest" = ROC_random_forest2)
-
-ggroc(ROC, aes = c("color", "linetype"), legacy.axes = TRUE) +
-  xlab("1-Specificity (False Positive Rate)") + 
-  ylab("Sensitivity (True Positive Rate") +
-  geom_abline(lty = 2, lwd = 0.1) +
-  scale_color_manual(values = c("midnight blue", "light blue3", "yellow3")) +
-  ggtitle("ROC curve for models built on \n 4-mer and single nucleotide proportions") + 
-  theme_classic() +
-  labs(color = "Model Type", linetype = "Model Type")
-
-
-
-#MAIN EDIT 01: Further investigation for samples with incorrect classification
-#MAIN EDIT 02: Creating automated selection for number of trees, based on minimum number of trees alongside minimum out-of-bag error
-#MAIN EDIT 03: Creating ROC curve and calculating ROC as a way to show the model accuracy for the chosen parameters. The ROC curve also helps to show the accuracy both in terms of true positive rate and false positive rate, providing some additional information, which could be useful depending on the question at hand and which type of error is most critical to avoid. It's also useful for just a general measurement of accuracy across different classification thresholds, as it's used here, since only one model is plotted. Found this to be helpful: https://medium.com/analytics-vidhya/how-to-select-performance-metrics-for-classification-models-c847fe6b1ea3
+sapply(2:length(curve), function(i) plot.roc(curve[[i]], add = T, print.auc = T, print.auc.adj = c(1, -7+i), col = i+2))
+legend("bottomright", legend = c("Artiodactyla - Carnivora", "Artiodactyla - Squamata", "Carnivora - Squamata"), lwd = 3, col = c("white", sapply(2:length(curve), function(i) i+2)))
 
