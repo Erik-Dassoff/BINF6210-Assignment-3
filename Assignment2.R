@@ -10,7 +10,9 @@ library(pROC)
 library(ggRandomForests)
 
 #Primary author: Arvind Srinivas
-#Contributor information: Erik Dassoff has updated and contributed to this script
+#Secondary contributor: Erik Dassoff has updated and contributed to this script
+#Other contributors: Chantelle and Lubaina reviewed and commented on edits made
+
 
 ###----PART 0: ADJUSTABLE PARAMETERS
 #Erik - added a few adjustable parameters, but more could be added
