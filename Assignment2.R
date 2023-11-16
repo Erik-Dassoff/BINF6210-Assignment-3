@@ -1,3 +1,9 @@
+#Attributions----
+#Primary Author - Erik Dassoff
+#Secondary Contributor - Arvind Srinivas added substantial edits to improve the search and data exploration efficiency by adding a function, to improve histogram visualization, and added a figure to check error rates across different numbers of trees in the random forest model.
+#Other Contributors - Chantelle Major and Lubaina Ahmed Kothari also made comments, and reviewed and checked this script.
+
+#Script----
 library(tidyverse)
 library(Biostrings)
 library(BiocManager)
